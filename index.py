@@ -1,35 +1,45 @@
 import urllib.request
 
-# Usamos el dominio de contenido RAW que está permitido y no tiene el límite de la API
-url = 'https://raw.githubusercontent.com/RickDeckcard/Bug_Bounty/main/no_existo_404'
+# Lista de alternativas usando tus dominios permitidos (provocando un 404 a propósito)
+urls_alternativas = [
+    'https://pypi.org/un_archivo_que_no_existe_404',
+    'http://archive.ubuntu.com/un_archivo_que_no_existe_404',
+    'https://api.anthropic.com/v1/endpoints_inventado'
+]
 
-try:
-    req = urllib.request.Request(
-        url, 
-        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    )
-    
+ip_encontrada = False
+
+for url in urls_alternativas:
     try:
-        with urllib.request.urlopen(req, timeout=5) as response:
-            headers = response.info()
-    except urllib.error.HTTPError as e:
-        # Aprovechamos el error (404) porque los headers de error también viajan con la info
-        headers = e.headers
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                headers = response.info()
+        except urllib.error.HTTPError as e:
+            # Capturamos los headers del error (404, 403, etc.)
+            headers = e.headers
 
-    # Evaluamos los encabezados devueltos por la infraestructura de red de GitHub
-    ip_publica = (
-        headers.get('X-Client-IP') or 
-        headers.get('Client-IP') or 
-        headers.get('X-Forwarded-For') or
-        headers.get('Fastly-Client-IP') # GitHub usa Fastly en su infraestructura CDN
-    )
+        # Buscamos las cabeceras donde las CDNs suelen reflejar la IP origen
+        ip_publica = (
+            headers.get('X-Client-IP') or 
+            headers.get('Client-IP') or 
+            headers.get('X-Forwarded-For') or
+            headers.get('Fastly-Client-IP') or
+            headers.get('CF-Connecting-IP') # Para dominios que usen Cloudflare
+        )
 
-    if ip_publica:
-        # X-Forwarded-For puede traer una cadena de IPs; nos quedamos con la primera
-        print("Tu IP pública es:", ip_publica.split(',')[0].strip())
-    else:
-        print("El servidor respondió, pero la infraestructura ocultó la IP.")
-        print("Headers disponibles para inspección:\n", headers)
+        if ip_publica:
+            print(f"Tu IP pública es: {ip_publica.split(',')[0].strip()}")
+            ip_encontrada = True
+            break # IP encontrada con éxito, salimos del bucle
+            
+    except Exception:
+        continue # Si este dominio falla por completo, pasa al siguiente
 
-except Exception as e:
-    print("Error de conexión:", str(e))
+if not ip_encontrada:
+    print("No se pudo obtener la IP a través de los métodos alternativos.")
+    print("Es probable que tu proxy local esté eliminando las cabeceras de depuración.")
