@@ -1,33 +1,31 @@
 import urllib.request
-import json
-import sys
 
-print("=== Detectando IP Pública ===")
+url = 'https://api.github.com/zen' # Usamos /zen porque consume poquísimos recursos
 
-esquemas = [
-    {'url': 'https://api.ipify.org?format=json', 'key': 'ip'},
-    {'url': 'https://ipinfo.io/json', 'key': 'ip'},
-    {'url': 'https://ifconfig.me/all.json', 'key': 'ip_addr'}
-]
-
-ip_encontrada = False
-
-for esquema in esquemas:
-    try:
-        # Configuramos un User-Agent para evitar que el servicio bloquee la petición
-        req = urllib.request.Request(
-            esquema['url'], 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
+try:
+    # Creamos la petición a un dominio permitido
+    req = urllib.request.Request(url)
+    
+    with urllib.request.urlopen(req) as response:
+        # Buscamos en los encabezados de respuesta
+        headers = response.info()
         
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            print(f"Tu IP pública es: {data[esquema['key']]}")
-            ip_encontrada = True
-            break # Si funciona uno, salimos del bucle
-            
-    except Exception:
-        continue # Si un servicio falla, intenta con el siguiente
+        # El encabezado 'X-Client-IP' o 'Client-IP' suele reflejar la IP de origen
+        ip_publica = headers.get('X-Client-IP') or headers.get('Client-IP')
+        
+        if ip_publica:
+            print("Tu IP pública (detectada vía GitHub) es:", ip_publica)
+        else:
+            # Si GitHub oculta el header directo, podemos ver los resolvers intermedios
+            forwarded = headers.get('X-Forwarded-For')
+            if forwarded:
+                # La primera IP de la lista suele ser la tuya real
+                tu_ip = forwarded.split(',')[0].strip()
+                print("Tu IP pública (vía Forwarded) es:", tu_ip)
+            else:
+                print("GitHub aceptó la petición, pero no expuso la IP en los headers comunes.")
+                # Opcional: Descomenta la línea de abajo para auditar todos los headers recibidos
+                # print(headers)
 
-if not ip_encontrada:
-    print("Error: No se pudo determinar la IP pública. Verifica tu conexión a internet.")
+except Exception as e:
+    print("Error al conectar con el dominio permitido:", str(e))
