@@ -1,31 +1,35 @@
 import urllib.request
 
-url = 'https://api.github.com/zen' # Usamos /zen porque consume poquísimos recursos
+# Usamos el dominio de contenido RAW que está permitido y no tiene el límite de la API
+url = 'https://raw.githubusercontent.com/RickDeckcard/Bug_Bounty/main/no_existo_404'
 
 try:
-    # Creamos la petición a un dominio permitido
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    )
     
-    with urllib.request.urlopen(req) as response:
-        # Buscamos en los encabezados de respuesta
-        headers = response.info()
-        
-        # El encabezado 'X-Client-IP' o 'Client-IP' suele reflejar la IP de origen
-        ip_publica = headers.get('X-Client-IP') or headers.get('Client-IP')
-        
-        if ip_publica:
-            print("Tu IP pública (detectada vía GitHub) es:", ip_publica)
-        else:
-            # Si GitHub oculta el header directo, podemos ver los resolvers intermedios
-            forwarded = headers.get('X-Forwarded-For')
-            if forwarded:
-                # La primera IP de la lista suele ser la tuya real
-                tu_ip = forwarded.split(',')[0].strip()
-                print("Tu IP pública (vía Forwarded) es:", tu_ip)
-            else:
-                print("GitHub aceptó la petición, pero no expuso la IP en los headers comunes.")
-                # Opcional: Descomenta la línea de abajo para auditar todos los headers recibidos
-                # print(headers)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            headers = response.info()
+    except urllib.error.HTTPError as e:
+        # Aprovechamos el error (404) porque los headers de error también viajan con la info
+        headers = e.headers
+
+    # Evaluamos los encabezados devueltos por la infraestructura de red de GitHub
+    ip_publica = (
+        headers.get('X-Client-IP') or 
+        headers.get('Client-IP') or 
+        headers.get('X-Forwarded-For') or
+        headers.get('Fastly-Client-IP') # GitHub usa Fastly en su infraestructura CDN
+    )
+
+    if ip_publica:
+        # X-Forwarded-For puede traer una cadena de IPs; nos quedamos con la primera
+        print("Tu IP pública es:", ip_publica.split(',')[0].strip())
+    else:
+        print("El servidor respondió, pero la infraestructura ocultó la IP.")
+        print("Headers disponibles para inspección:\n", headers)
 
 except Exception as e:
-    print("Error al conectar con el dominio permitido:", str(e))
+    print("Error de conexión:", str(e))
